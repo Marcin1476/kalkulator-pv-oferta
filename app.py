@@ -19,11 +19,11 @@ PANELS = {"Longi 450W": 0.45, "Jinko 550W": 0.55, "Trina 400W": 0.40}
 INV_DB = {"Huawei": [0.98, 4500], "Fronius": [0.97, 6200], "SMA": [0.98, 7500]}
 BAT_DB = {"Brak": 0, "5 kWh": 5, "10 kWh": 10, "15 kWh": 15}
 
-def get_coords(city):
+def get_coords(city_name):
     try:
-        url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
+        url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1"
         r = requests.get(url, headers={'User-Agent': 'PV_App_2026'}).json()
-        if r: return float(r[0]['lat']), float(res[0]['lon']), r[0]['display_name'].split(',')[0]
+        if r: return float(r[0]['lat']), float(r[0]['lon']), r[0]['display_name'].split(',')[0]
     except: return None
 
 @st.cache_data
@@ -51,12 +51,7 @@ n_p = st.sidebar.slider("Ilość paneli:", 1, 60, 14)
 s_i = st.sidebar.selectbox("Inwerter:", list(INV_DB.keys()))
 s_b = st.sidebar.selectbox("Magazyn:", list(BAT_DB.keys()))
 
-st.sidebar.header("🔥 3. Pompa Ciepła")
-use_hp = st.sidebar.checkbox("Mam pompę ciepła")
-hp_kwh = st.sidebar.number_input("Zużycie pompy (kWh/rok):", 0, 10000, 3500) if use_hp else 0
-
-st.sidebar.header("💰 4. Finanse")
-prc = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
+st.sidebar.header("💰 3. Finanse")
 m_cost = st.sidebar.number_input("Montaż/Osprzęt (zł/kWp):", 0, 10000, 4000)
 
 # --- LOGIKA ---
@@ -67,10 +62,10 @@ prod = kwp * rad * eff * 0.9
 total_inv = (kwp * m_cost) + i_prc + (BAT_DB[s_b] * 2200)
 
 # --- WIDOK ---
-st.title(f"☀️ Analiza Efektywności: {st.session_state.city}")
+st.title(f"☀️ Analiza Techniczna: {st.session_state.city}")
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Dni Słoneczne", sunny)
-k2.metric("Moc Startowa", f"{round(kwp,2)} kWp")
+k2.metric("Moc Układu", f"{round(kwp,2)} kWp")
 k3.metric("Energia Rok 1", f"{int(prod)} kWh")
 k4.metric("Koszt Zestawu", f"{int(total_inv)} zł")
 
@@ -83,21 +78,18 @@ with m_col:
     st_folium(m, height=250, use_container_width=True, key="map_v11")
 
 with g_col:
-    st.subheader("📉 Spadek wydajności paneli (25 lat)")
+    st.subheader("📉 Wydajność paneli w czasie (25 lat)")
     years = np.arange(1, 26)
-    # Przyjmujemy spadek 0.5% rocznie od 100%
     efficiency = [100 - (y * 0.5) for y in years]
     
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(years, efficiency, color='#e67e22', lw=3, label='Moc gwarantowana')
+    ax.plot(years, efficiency, color='#e67e22', lw=3)
     ax.fill_between(years, efficiency, 80, color='#f39c12', alpha=0.2)
     ax.set_ylim(80, 105)
-    ax.set_xlabel("Lata eksploatacji")
+    ax.set_xlabel("Lata")
     ax.set_ylabel("Wydajność (%)")
     ax.grid(True, linestyle='--', alpha=0.6)
     st.pyplot(fig)
-
-[Image of solar panel degradation curve over 25 years]
 
 st.subheader("Wizualizacja Rozmieszczenia")
 c_n = 8
@@ -111,7 +103,7 @@ ax_pv.set_ylim(-0.5, r_n * 2.5)
 plt.axis('off')
 st.pyplot(fig_pv)
 
-if st.button("📥 Generuj Raport Techniczny PDF"):
+if st.button("📥 Generuj Raport PDF"):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
@@ -121,4 +113,4 @@ if st.button("📥 Generuj Raport Techniczny PDF"):
     pdf.cell(200, 10, f"Lokalizacja: {st.session_state.city}", ln=True)
     pdf.cell(200, 10, f"Dni sloneczne: {sunny}", ln=True)
     pdf.cell(200, 10, f"Moc poczatkowa: {round(kwp,2)} kWp", ln=True)
-    pdf.cell(200, 10, f"Wydajnosc po 25 latach: {efficiency[-1]}%", ln
+    res = pdf.
