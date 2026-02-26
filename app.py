@@ -8,7 +8,6 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Ekspert PV Pro 2025", layout="wide")
 
-# --- KONFIGURACJA ---
 PANELS_DB = {"Longi 450W": 0.45, "Jinko 550W": 0.55, "Trina 400W": 0.40}
 BATTERY_DB = {"Brak": 0, "5 kWh": 5, "10 kWh": 10, "15 kWh": 15}
 
@@ -34,7 +33,6 @@ def get_weather_2025(lat, lon):
 if 'lat' not in st.session_state:
     st.session_state.lat, st.session_state.lon, st.session_state.city_name = 52.22, 21.01, "Warszawa"
 
-# --- SIDEBAR ---
 st.sidebar.header("📍 1. Lokalizacja")
 city_q = st.sidebar.text_input("Wpisz miasto:", st.session_state.city_name)
 if st.sidebar.button("Zmień lokalizację"):
@@ -52,20 +50,17 @@ sel_panel = st.sidebar.selectbox("Model panela:", list(PANELS_DB.keys()))
 num_panels = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
 sel_battery = st.sidebar.selectbox("Magazyn energii:", list(BATTERY_DB.keys()))
 
-# --- OBLICZENIA ---
 rad_m2, sunny_days = get_weather_2025(st.session_state.lat, st.session_state.lon)
 total_kwp = num_panels * PANELS_DB[sel_panel]
 production = total_kwp * (rad_m2 * 0.85)
 annual_usage_kwh = (monthly_bill / energy_price) * 12
 
-# Bilans oszczędności (uproszczony)
 autocons = 0.3 + (BATTERY_DB[sel_battery] / 25) if BATTERY_DB[sel_battery] > 0 else 0.3
 autocons = min(0.75, autocons)
 savings = (production * autocons * energy_price) + (production * (1 - autocons) * 0.50)
 new_bill = max(300, (annual_usage_kwh * energy_price) - savings)
 profit = (annual_usage_kwh * energy_price) - new_bill
 
-# --- GŁÓWNY INTERFEJS ---
 st.title(f"☀️ Raport Energii 2025: {st.session_state.city_name}")
 
 c1, c2, c3 = st.columns(3)
@@ -87,11 +82,21 @@ with col_chart:
     ax_b.bar(['Przed PV', 'Po PV'], [annual_usage_kwh * energy_price, new_bill], color=['#e74c3c', '#2ecc71'])
     st.pyplot(fig_b)
 
-# --- WIZUALIZACJA ---
+# --- POPRAWIONA SEKCJA WIZUALIZACJI ---
 st.subheader("🖼️ Rozmieszczenie paneli")
 cols = 8
 rows = -(-num_panels // cols)
 fig_pv, ax_pv = plt.subplots(figsize=(10, 3))
 for i in range(num_panels):
     r, c = divmod(i, cols)
-    ax_pv.add_patch(patches.Rectangle((c*1.3,
+    # PONIŻSZA LINIA ZOSTAŁA POPRAWIONA (DODANO NAWIASY)
+    ax_pv.add_patch(patches.Rectangle((c*1.3, r*2.2), 1.2, 2.0, color='#1a237e', ec='white'))
+
+plt.axis('off')
+ax_pv.set_xlim(-1, cols * 1.5)
+ax_pv.set_ylim(-1, rows * 2.5)
+st.pyplot(fig_pv)
+
+if st.button("📥 Pobierz Raport PDF"):
+    try:
+        pdf = FPDF()
