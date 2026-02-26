@@ -72,20 +72,15 @@ total_kwp = num_p * PANELS[sel_p]
 inv_eff = INVERTERS[sel_inv][0]
 inv_price = INVERTERS[sel_inv][1]
 
-# Produkcja PV
 prod_year = total_kwp * rad_total * inv_eff * 0.9
-
-# Inwestycja (tylko PV)
 total_investment = (total_kwp * cost_kwp) + inv_price + (BATTERIES[sel_b] * 2000)
 
-# Autokonsumpcja: Wyższa, jeśli jest pompa ciepła
+# Autokonsumpcja uwzględniająca pompę ciepła
 base_ac = 0.25 + (BATTERIES[sel_b] / 25)
 if hp_consumption > 0:
-    base_ac += 0.20 # Pompa drastycznie podnosi zużycie własne
+    base_ac += 0.20
 autocons = min(0.85, base_ac)
 
-# Zysk = (Prąd zużyty na miejscu * cena zakupu) + (Nadwyżka * cena odkupu)
-# Cena odkupu szacowana na 0.50 zł
 savings = (prod_year * autocons * price) + (prod_year * (1 - autocons) * 0.50)
 roi = total_investment / savings if savings > 0 else 0
 
@@ -120,8 +115,6 @@ with col_plots:
     ax_eff.set_ylabel("Wydajność (%)")
     st.pyplot(fig_eff)
 
-[Image of solar energy self-consumption chart with heat pump]
-
 st.subheader("🖼️ Projekt Rozmieszczenia Paneli")
 cols = 8
 rows = -(-num_p // cols)
@@ -142,9 +135,7 @@ if st.button("📥 Pobierz PDF"):
     pdf.set_font("Arial", '', 12)
     pdf.ln(10)
     pdf.cell(200, 10, f"Miejscowosc: {st.session_state.city} ({sunny_days} dni slonecznych)", ln=True)
-    pdf.cell(200, 10, f"Moc instalacji: {round(total_kwp, 2)} kWp", ln=True)
-    pdf.cell(200, 10, f"Koszt inwestycji: {int(total_investment)} zl", ln=True)
-    pdf.cell(200, 10, f"Uwzglednione zuzycie PC: {hp_consumption} kWh/rok", ln=True)
-    pdf.cell(200, 10, f"Czas zwrotu: {round(roi, 1)} lat", ln=True)
+    pdf.cell(200, 10, f"Moc: {round(total_kwp, 2)} kWp | Inwestycja: {int(total_investment)} zl", ln=True)
+    pdf.cell(200, 10, f"Zwrot: {round(roi, 1)} lat", ln=True)
     res_pdf = pdf.output(dest='S').encode('latin-1')
-    st.download_button("Pobierz Raport PDF", res_pdf, "Oferta_PV_2026.pdf")
+    st.download_button("Zapisz Raport PDF", res_pdf, "Oferta_PV.pdf")
