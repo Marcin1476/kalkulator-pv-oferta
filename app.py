@@ -7,7 +7,7 @@ import folium
 from streamlit_folium import st_folium
 import numpy as np
 
-st.set_page_config(page_title="Ekspert PV Pro 2026", layout="wide")
+st.set_page_config(page_title="Ekspert PV Pro 2026 - Mój Prąd 7.0", layout="wide")
 
 # --- INICJALIZACJA SESJI ---
 if 'lat' not in st.session_state: st.session_state.lat = 52.23
@@ -56,19 +56,6 @@ st.sidebar.header("🏗️ 2. Parametry Dachu")
 roof_tilt = st.sidebar.slider("Kąt nachylenia dachu (°)", 0, 90, 35)
 roof_dir = st.sidebar.selectbox("Kierunek świata", ["Południe", "Południowy-Wschód", "Południowy-Zachód", "Wschód", "Zachód", "Północ"])
 
-# Współczynniki korygujące (uproszczona macierz wydajności)
-dir_corr_map = {
-    "Południe": 1.0, 
-    "Południowy-Wschód": 0.96, 
-    "Południowy-Zachód": 0.96, 
-    "Wschód": 0.82, 
-    "Zachód": 0.82, 
-    "Północ": 0.55
-}
-# Korekta kąta (najlepszy uzysk 30-40 stopni)
-tilt_corr = 1.0 - (abs(roof_tilt - 35) * 0.003) 
-final_roof_corr = dir_corr_map[roof_dir] * tilt_corr
-
 st.sidebar.header("🏗️ 3. Konfiguracja PV")
 sel_p = st.sidebar.selectbox("Model paneli:", list(PANELS.keys()))
 num_p = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
@@ -83,31 +70,44 @@ bill = st.sidebar.number_input("Rachunek za prąd bytowy (mies.):", 50, 2000, 30
 price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
 cost_kwp = st.sidebar.number_input("Montaż i osprzęt (zł/kWp):", 0, 10000, 4000)
 
-# --- OBLICZENIA ---
+# --- OBLICZENIA LOGICZNE ---
 rad_total, sunny_days = get_weather_data(st.session_state.lat, st.session_state.lon)
 total_kwp = num_p * PANELS[sel_p]
-inv_eff = INVERTERS[sel_inv][0]
-inv_price = INVERTERS[sel_inv][1]
 
-# Produkcja z uwzględnieniem lokalizacji, sprzętu oraz parametrów dachu
-prod_year = total_kwp * rad_total * inv_eff * final_roof_corr * 0.9
-total_investment = (total_kwp * cost_kwp) + inv_price + (BATTERIES[sel_b] * 2000)
+# Korekta dachu
+dir_corr = {"Południe": 1.0, "Południowy-Wschód": 0.96, "Południowy-Zachód": 0.96, "Wschód": 0.82, "Zachód": 0.82, "Północ": 0.55}
+tilt_corr = 1.0 - (abs(roof_tilt - 35) * 0.003) 
+final_roof_corr = dir_corr[roof_dir] * tilt_corr
 
-base_ac = 0.25 + (BATTERIES[sel_b] / 25)
-if hp_consumption > 0:
-    base_ac += 0.20
+prod_year = total_kwp * rad_total * INVERTERS[sel_inv][0] * final_roof_corr * 0.9
+total_investment = (total_kwp * cost_kwp) + INVERTERS[sel_inv][1] + (BATTERIES[sel_b] * 2200)
+
+# LOGIKA MÓJ PRĄD 7.0
+subsidy = 0
+if BATTERIES[sel_b] > 0:
+    subsidy += 7000  # Dotacja do PV przy magazynie (zwiększona w MP 7.0)
+    subsidy += 16000 # Dotacja do magazynu energii
+else:
+    # W MP 7.0 magazyn jest zazwyczaj wymagany dla nowych instalacji, 
+    # ale zachowujemy logikę dla przejrzystości.
+    subsidy = 0 
+
+net_investment = total_investment - subsidy
+
+# Autokonsumpcja
+base_ac = 0.25 + (BATTERIES[sel_b] / 25) + (0.20 if hp_consumption > 0 else 0)
 autocons = min(0.85, base_ac)
 
 savings = (prod_year * autocons * price) + (prod_year * (1 - autocons) * 0.50)
-roi = total_investment / savings if savings > 0 else 0
+roi = net_investment / savings if savings > 0 else 0
 
 # --- WIDOK GŁÓWNY ---
-st.title(f"☀️ Raport Techniczny PV 2026: {st.session_state.city}")
+st.title(f"☀️ Raport Mój Prąd 7.0: {st.session_state.city}")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Dni Słoneczne", f"{sunny_days}")
-c2.metric("Moc Układu", f"{round(total_kwp, 2)} kWp")
-c3.metric("Wydajność Dachu", f"{int(final_roof_corr*100)}%")
+c1.metric("Dotacja MP 7.0", f"{int(subsidy)} zł", delta="Odzysk środków", delta_color="normal")
+c2.metric("Inwestycja NETTO", f"{int(net_investment)} zł")
+c3.metric("Roczny Zysk", f"{int(savings)} zł")
 c4.metric("Czas Zwrotu", f"{round(roi, 1)} lat")
 
 st.divider()
@@ -115,22 +115,22 @@ st.divider()
 col_map, col_plots = st.columns([1, 1])
 
 with col_map:
-    st.subheader("📍 Dane i Lokalizacja")
+    st.subheader("📍 Dane Techniczne")
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
     folium.Marker([st.session_state.lat, st.session_state.lon]).add_to(m)
-    st_folium(m, height=250, use_container_width=True, key="map_v11")
-    st.info(f"Parametry dachu: **{roof_dir}**, kąt **{roof_tilt}°**. Nasłonecznienie: **{int(rad_total)} kWh/m²**")
+    st_folium(m, height=250, use_container_width=True, key="map_mp7")
+    st.info(f"Orientacja: {roof_dir}, Kąt: {roof_tilt}°. Słońce: {sunny_days} dni/2025.")
 
 with col_plots:
-    st.subheader("📉 Efektywność paneli w czasie (25 lat)")
+    st.subheader("📉 Wydajność paneli (25 lat)")
     years_25 = np.arange(1, 26)
-    efficiency = [100 - (y * 0.5) for y in years_25]
-    fig_eff, ax_eff = plt.subplots(figsize=(6, 4))
-    ax_eff.plot(years_25, efficiency, color='#e67e22', lw=3)
-    ax_eff.fill_between(years_25, efficiency, 80, color='#f39c12', alpha=0.2)
-    ax_eff.set_ylim(80, 105)
-    ax_eff.set_ylabel("Wydajność (%)")
-    st.pyplot(fig_eff)
+    eff = [100 - (y * 0.5) for y in years_25]
+    fig, ax = plt.subplots(figsize=(6, 4))
+    ax.plot(years_25, eff, color='#e67e22', lw=3)
+    ax.fill_between(years_25, eff, 80, color='#f39c12', alpha=0.2)
+    ax.set_ylim(80, 105)
+    ax.set_ylabel("Wydajność (%)")
+    st.pyplot(fig)
 
 
 
@@ -146,16 +146,17 @@ ax_pv.set_ylim(-0.5, rows * 2.5)
 plt.axis('off')
 st.pyplot(fig_pv)
 
-if st.button("📥 Pobierz PDF"):
+if st.button("📥 Pobierz Ofertę z Dotacjami"):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, "ANALIZA TECHNICZNA PV 2026", ln=True, align='C')
+    pdf.cell(200, 10, "OFERTA PV 2026 - PROGRAM MOJ PRAD 7.0", ln=True, align='C')
     pdf.set_font("Arial", '', 12)
     pdf.ln(10)
-    pdf.cell(200, 10, f"Lokalizacja: {st.session_state.city} ({sunny_days} dni slonecznych)", ln=True)
-    pdf.cell(200, 10, f"Parametry dachu: {roof_dir}, Kat {roof_tilt} deg", ln=True)
-    pdf.cell(200, 10, f"Wydajnosc konstrukcyjna: {int(final_roof_corr*100)}%", ln=True)
-    pdf.cell(200, 10, f"Moc: {round(total_kwp, 2)} kWp | Zwrot: {round(roi, 1)} lat", ln=True)
+    pdf.cell(200, 10, f"Lokalizacja: {st.session_state.city}", ln=True)
+    pdf.cell(200, 10, f"Koszt brutto: {int(total_investment)} zl", ln=True)
+    pdf.cell(200, 10, f"Dotacja laczna: {int(subsidy)} zl", ln=True)
+    pdf.cell(200, 10, f"Koszt koncowy (netto): {int(net_investment)} zl", ln=True)
+    pdf.cell(200, 10, f"Czas zwrotu z dotacja: {round(roi, 1)} lat", ln=True)
     res_pdf = pdf.output(dest='S').encode('latin-1')
-    st.download_button("Zapisz Raport PDF", res_pdf, "Raport_PV_Prosument.pdf")
+    st.download_button("Zapisz Raport MP7", res_pdf, "Oferta_MojPrad7.pdf")
