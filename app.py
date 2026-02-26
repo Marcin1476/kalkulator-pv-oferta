@@ -8,68 +8,57 @@ from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Ekspert PV Pro 2025", layout="wide")
 
-# --- KONFIGURACJA ---
-PANELS_DB = {"Longi 450W": 0.45, "Jinko 550W": 0.55, "Trina 400W": 0.40}
-BATTERY_DB = {"Brak": 0, "5 kWh": 5, "10 kWh": 10, "15 kWh": 15}
+# --- DANE BAZOWE ---
+PANELS = {"Longi 450W": 0.45, "Jinko 550W": 0.55, "Trina 400W": 0.40}
+BATTERIES = {"Brak": 0, "5 kWh": 5, "10 kWh": 10, "15 kWh": 15}
 
-def get_coords(city_name):
+def get_coords(city):
     try:
-        url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1"
-        headers = {'User-Agent': 'Kalkulator_PV_App_V5'}
-        res = requests.get(url, headers=headers).json()
+        url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
+        res = requests.get(url, headers={'User-Agent': 'PV_App_Final'}).json()
         if res: return float(res[0]['lat']), float(res[0]['lon']), res[0]['display_name'].split(',')[0]
     except: return None
 
 @st.cache_data
-def get_weather_2025(lat, lon):
+def get_sun_data(lat, lon):
     try:
         url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date=2025-01-01&end_date=2025-12-31&daily=shortwave_radiation_sum&timezone=auto"
         res = requests.get(url).json()
-        rad_list = res['daily']['shortwave_radiation_sum']
-        total_rad_kwh = sum([r for r in rad_list if r is not None]) / 3.6
-        return total_rad_kwh
+        rad = sum([r for r in res['daily']['shortwave_radiation_sum'] if r is not None]) / 3.6
+        return rad
     except: return 1050.0
 
 if 'lat' not in st.session_state:
-    st.session_state.lat, st.session_state.lon, st.session_state.city_name = 52.23, 21.01, "Warszawa"
+    st.session_state.lat, st.session_state.lon, st.session_state.city = 52.23, 21.01, "Warszawa"
 
 # --- SIDEBAR ---
-st.sidebar.header("📍 1. Lokalizacja")
-city_input = st.sidebar.text_input("Wpisz miasto:", st.session_state.city_name)
+st.sidebar.header("📍 Lokalizacja")
+city_in = st.sidebar.text_input("Miasto:", st.session_state.city)
 if st.sidebar.button("Zastosuj"):
-    res = get_coords(city_input)
+    res = get_coords(city_in)
     if res:
-        st.session_state.lat, st.session_state.lon, st.session_state.city_name = res
+        st.session_state.lat, st.session_state.lon, st.session_state.city = res
         st.rerun()
 
-st.sidebar.header("💰 2. Parametry")
-monthly_bill = st.sidebar.number_input("Rachunek miesięczny (zł):", 50, 2000, 400)
-energy_price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
-installation_cost_per_kwp = st.sidebar.number_input("Koszt 1 kWp (zł):", 3000, 7000, 4500)
-
-st.sidebar.header("🏗️ 3. Sprzęt")
-sel_panel = st.sidebar.selectbox("Model panela:", list(PANELS_DB.keys()))
-num_panels = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
-sel_battery = st.sidebar.selectbox("Magazyn energii:", list(BATTERY_DB.keys()))
+st.sidebar.header("💰 Finanse i Sprzęt")
+bill = st.sidebar.number_input("Rachunek miesięczny (zł):", 50, 2000, 400)
+price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
+cost_per_kwp = st.sidebar.number_input("Koszt 1 kWp (zł):", 3000, 7000, 4500)
+sel_p = st.sidebar.selectbox("Model panela:", list(PANELS.keys()))
+num_p = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
+sel_b = st.sidebar.selectbox("Magazyn energii:", list(BATTERIES.keys()))
 
 # --- OBLICZENIA ---
-rad_m2 = get_weather_2025(st.session_state.lat, st.session_state.lon)
-total_kwp = num_panels * PANELS_DB[sel_panel]
-production_kwh = total_kwp * (rad_m2 * 0.85)
-annual_usage_kwh = (monthly_bill / energy_price) * 12
-
-# Koszty i zwrot
-total_cost = (total_kwp * installation_cost_per_kwp) + (BATTERY_DB[sel_battery] * 2000)
-autocons = 0.3 + (BATTERY_DB[sel_battery] / 25) if BATTERY_DB[sel_battery] > 0 else 0.3
+rad = get_sun_data(st.session_state.lat, st.session_state.lon)
+total_kwp = num_p * PANELS[sel_p]
+prod_year = total_kwp * (rad * 0.85)
+inv_cost = (total_kwp * cost_per_kwp) + (BATTERIES[sel_b] * 2000)
+autocons = 0.3 + (BATTERIES[sel_b] / 25) if BATTERIES[sel_b] > 0 else 0.3
 autocons = min(0.75, autocons)
-annual_savings = (production_kwh * autocons * energy_price) + (production_kwh * (1 - autocons) * 0.50)
-years_to_return = total_cost / annual_savings if annual_savings > 0 else 0
+savings = (prod_year * autocons * price) + (prod_year * (1 - autocons) * 0.50)
+roi = inv_cost / savings if savings > 0 else 0
 
-# --- INTERFEJS ---
-st.title(f"☀️ Raport Inwestycyjny PV 2025: {st.session_state.city_name}")
+# --- WIDOK GŁÓWNY ---
+st.title(f"☀️ Raport Inwestycyjny: {st.session_state.city}")
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Moc Instalacji", f"{round(total_kwp, 2)} kWp")
-c2.metric("Koszt Całkowity", f"{int(total_cost)} zł")
-c3.metric("Roczny Zysk", f"{int(annual_savings)} zł")
-c4.metric("Czas Zwrotu", f"{round(years
+c1
