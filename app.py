@@ -15,7 +15,7 @@ BATTERY_DB = {"Brak": 0, "5 kWh": 5, "10 kWh": 10, "15 kWh": 15}
 def get_coords(city_name):
     try:
         url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1"
-        headers = {'User-Agent': 'Kalkulator_PV_App_V3'}
+        headers = {'User-Agent': 'Kalkulator_PV_App_V4'}
         res = requests.get(url, headers=headers).json()
         if res: return float(res[0]['lat']), float(res[0]['lon']), res[0]['display_name'].split(',')[0]
     except: return None
@@ -64,8 +64,8 @@ savings = (production_kwh * autocons * energy_price) + (production_kwh * (1 - au
 new_bill = max(300, (annual_usage_kwh * energy_price) - savings)
 profit = (annual_usage_kwh * energy_price) - new_bill
 
-# --- GŁÓWNY INTERFEJS ---
-st.title(f"☀️ Raport Energetyczny 2025: {st.session_state.city_name}")
+# --- INTERFEJS ---
+st.title(f"☀️ Raport Energii 2025: {st.session_state.city_name}")
 
 c1, c2, c3 = st.columns(3)
 c1.metric("Zużycie domu", f"{int(annual_usage_kwh)} kWh/rok")
@@ -78,7 +78,7 @@ col_m, col_b = st.columns([2, 1])
 with col_m:
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
     folium.Marker([st.session_state.lat, st.session_state.lon]).add_to(m)
-    st_folium(m, height=300, use_container_width=True, key="map_stable_v3")
+    st_folium(m, height=300, use_container_width=True, key="map_stable_v4")
 
 with col_b:
     st.subheader("📊 Bilans kosztów")
@@ -86,15 +86,33 @@ with col_b:
     ax_b.bar(['Przed PV', 'Po PV'], [annual_usage_kwh * energy_price, new_bill], color=['#e74c3c', '#2ecc71'])
     st.pyplot(fig_b)
 
-# --- POPRAWIONA WIZUALIZACJA ---
+# --- WIZUALIZACJA (NAPRAWIONA) ---
 st.subheader("🖼️ Rozmieszczenie paneli na dachu")
 cols_n = 8
 rows_n = -(-num_panels // cols_n)
 
-# Tworzymy wykres jawnie definiując osie
 fig_pv, ax_pv = plt.subplots(figsize=(10, 4))
 
 for i in range(num_panels):
     r, c = divmod(i, cols_n)
-    # Rysujemy panel jako granatowy prostokąt
-    rect = patches.Rectangle((c * 1.3, r * 2.2), 1.2, 2.
+    # Poprawiona linia Rectangle - wszystkie nawiasy domknięte
+    rect = patches.Rectangle((c * 1.3, r * 2.2), 1.2, 2.0, linewidth=1, edgecolor='white', facecolor='#1a237e')
+    ax_pv.add_patch(rect)
+
+ax_pv.set_xlim(-0.5, cols_n * 1.5)
+ax_pv.set_ylim(-0.5, rows_n * 2.5)
+ax_pv.set_aspect('equal')
+plt.axis('off')
+st.pyplot(fig_pv)
+
+# --- PDF ---
+if st.button("📥 Pobierz Raport PDF"):
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(200, 10, f"OFERTA PV 2025 - {st.session_state.city_name.upper()}", ln=True, align='C')
+        pdf_out = pdf.output(dest='S').encode('latin-1')
+        st.download_button("Pobierz Raport", pdf_out, "Oferta_PV.pdf", "application/pdf")
+    except Exception as e:
+        st.error(f"Błąd PDF: {e}")
