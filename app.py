@@ -7,7 +7,8 @@ import folium
 from streamlit_folium import st_folium
 import numpy as np
 
-st.set_page_config(page_title="Ekspert PV Pro 2026 - Fundament", layout="wide")
+# --- KONFIGURACJA STRONY ---
+st.set_page_config(page_title="Ekspert PV Pro 2026 - Marcin Szymański", layout="wide")
 
 # --- INICJALIZACJA SESJI ---
 if 'lat' not in st.session_state: st.session_state.lat = 52.23
@@ -59,7 +60,6 @@ roof_dir = st.sidebar.selectbox("Kierunek świata", ["Południe", "Wschód", "Za
 st.sidebar.header("🏗️ 3. Kalkulator Mocy i Sprzęt")
 sel_p = st.sidebar.selectbox("Model paneli:", list(PANELS.keys()))
 num_p = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
-
 panel_power_kwp = PANELS[sel_p]
 total_kwp = num_p * panel_power_kwp
 st.sidebar.info(f"⚡ Moc projektowana: **{round(total_kwp, 2)} kWp**")
@@ -68,13 +68,18 @@ sel_inv = st.sidebar.selectbox("Model inwertera:", list(INVERTERS.keys()))
 sel_b = st.sidebar.selectbox("Magazyn energii:", list(BATTERIES.keys()))
 
 st.sidebar.header("💰 4. Koszty i Zużycie")
-hp_consumption = st.sidebar.number_input("Roczne zużycie PC (kWh):", 0, 15000, 4000)
+hp_consumption = st.sidebar.number_input("Roczne zużycie Pompy Ciepła (kWh):", 0, 15000, 4000)
 price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
 cost_kwp_install = st.sidebar.number_input("Montaż i osprzęt (zł/kWp):", 0, 10000, 4000)
 
+# --- STOPKA AUTORSKA W SIDEBARZE ---
+st.sidebar.divider()
+st.sidebar.markdown("### Właściciel aplikacji:")
+st.sidebar.write("**Marcin Szymański**")
+st.sidebar.caption("Wszelkie prawa autorskie zastrzeżone © 2026")
+
 # --- OBLICZENIA ---
 rad_total, sunny_days = get_weather_data(st.session_state.lat, st.session_state.lon)
-
 dir_corr = {"Południe": 1.0, "Wschód": 0.82, "Zachód": 0.82, "Północ": 0.55}
 tilt_corr = 1.0 - (abs(roof_tilt - 35) * 0.003) 
 final_roof_corr = dir_corr[roof_dir] * tilt_corr
@@ -85,6 +90,7 @@ total_investment = (total_kwp * cost_kwp_install) + INVERTERS[sel_inv][1] + (BAT
 subsidy = (7000 + 16000) if BATTERIES[sel_b] > 0 else 0
 net_investment = total_investment - subsidy
 
+# Autokonsumpcja uwzględniająca Pompę Ciepła
 base_ac = 0.25 + (BATTERIES[sel_b] / 25) + (0.20 if hp_consumption > 0 else 0)
 autocons = min(0.85, base_ac)
 
@@ -92,7 +98,8 @@ savings = (prod_year * autocons * price) + (prod_year * (1 - autocons) * 0.50)
 roi = net_investment / savings if savings > 0 else 0
 
 # --- WIDOK GŁÓWNY ---
-st.title(f"☀️ Raport Inwestycyjny PV 2026: {st.session_state.city}")
+st.title(f"☀️ Raport PV 2026: {st.session_state.city}")
+st.subheader(f"Autor projektu: Marcin Szymański")
 
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Moc Układu", f"{round(total_kwp, 2)} kWp", f"{num_p} szt. x {int(panel_power_kwp*1000)}W")
@@ -108,7 +115,7 @@ with col_map:
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
     folium.Marker([st.session_state.lat, st.session_state.lon]).add_to(m)
     st_folium(m, height=250, use_container_width=True, key="map_v_final")
-    st.write(f"Dni słoneczne: **{sunny_days}**. Wydajność dachu: **{int(final_roof_corr*100)}%**")
+    st.write(f"Dni słoneczne (2025): **{sunny_days}**. Wydajność dachu: **{int(final_roof_corr*100)}%**")
 
 with col_plots:
     st.subheader("📉 Wydajność paneli (25 lat)")
@@ -121,53 +128,62 @@ with col_plots:
     ax.set_ylabel("Wydajność (%)")
     st.pyplot(fig)
 
-# --- 5. WIZUALIZACJA PANELI (SYMETRYCZNA) ---
+# --- WIZUALIZACJA PANELI (SYMETRYCZNA) ---
 st.subheader("🖼️ Symetryczny Projekt Rozmieszczenia")
-cols_n = 8  # Liczba paneli w pełnym rzędzie
-rows_n = -(-num_p // cols_n) # Całkowita liczba rzędów
-
+cols_n = 8
+rows_n = -(-num_p // cols_n) 
 fig_pv, ax_pv = plt.subplots(figsize=(10, 4))
 
 for i in range(num_p):
     r, c = divmod(i, cols_n)
-    
-    # Logika symetrii dla ostatniego rzędu
-    current_row_y = r
-    
-    # Sprawdź, czy to ostatni rząd i czy jest niepełny
-    is_last_row = (current_row_y == rows_n - 1)
+    is_last_row = (r == rows_n - 1)
     panels_in_last_row = num_p % cols_n
-    
     if is_last_row and panels_in_last_row != 0:
-        # Oblicz przesunięcie (offset), aby wyśrodkować niepełny rząd
-        # Przesunięcie = (Szerokość pełnego rzędu - Szerokość obecnego rzędu) / 2
         offset = (cols_n - panels_in_last_row) * 1.3 / 2
         x_pos = (c * 1.3) + offset
     else:
-        # Standardowe rozmieszczenie dla pełnych rzędów
         x_pos = c * 1.3
-        
-    y_pos = r * 2.2 # Odstęp pionowy między rzędami
-    
-    # Rysuj panel (wymiary 1.2m x 2.0m)
+    y_pos = r * 2.2 
     ax_pv.add_patch(patches.Rectangle((x_pos, y_pos), 1.2, 2.0, color='#1a237e', ec='white', lw=0.5))
 
-# Ustawienia osi, aby objąć cały projekt
 ax_pv.set_xlim(-0.5, (cols_n * 1.3))
 ax_pv.set_ylim(-0.5, (rows_n * 2.2))
 ax_pv.set_aspect('equal')
 plt.axis('off')
 st.pyplot(fig_pv)
 
+# --- RAPORT PDF ---
 if st.button("📥 Pobierz Pełną Ofertę PDF"):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, "RAPORT PV - FUNDAMENT 2026", ln=True, align='C')
-    pdf.set_font("Arial", '', 12)
+    pdf.cell(200, 10, "RAPORT TECHNICZNO-EKONOMICZNY PV", ln=True, align='C')
+    pdf.set_font("Arial", 'I', 12)
+    pdf.cell(200, 10, "Projektant: Marcin Szymanski", ln=True, align='C')
     pdf.ln(10)
-    pdf.cell(200, 10, f"Moc instalacji: {round(total_kwp, 2)} kWp ({num_p} paneli)", ln=True)
-    pdf.cell(200, 10, f"Uklad symetryczny: {rows_n} rzedow", ln=True)
-    pdf.cell(200, 10, f"Koszt netto po dotacji MP7: {int(net_investment)} zl", ln=True)
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, "DANE TECHNICZNE:", ln=True)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(200, 8, f"- Lokalizacja: {st.session_state.city} ({sunny_days} dni slonecznych)", ln=True)
+    pdf.cell(200, 8, f"- Moc instalacji: {round(total_kwp, 2)} kWp ({num_p} paneli)", ln=True)
+    pdf.cell(200, 8, f"- Kat dachu: {roof_tilt} deg, Kierunek: {roof_dir}", ln=True)
+    pdf.cell(200, 8, f"- Zuzycie Pompy Ciepla: {hp_consumption} kWh/rok", ln=True)
+    pdf.ln(5)
+    
+    pdf.set_font("Arial", 'B', 12)
+    pdf.cell(200, 10, "ANALIZA FINANSOWA:", ln=True)
+    pdf.set_font("Arial", '', 11)
+    pdf.cell(200, 8, f"- Koszt netto po dotacji MP7: {int(net_investment)} zl", ln=True)
+    pdf.cell(200, 8, f"- Szacowany czas zwrotu: {round(roi, 1)} lat", ln=True)
+    
+    pdf.ln(20)
+    pdf.set_font("Arial", 'I', 9)
+    pdf.multi_cell(0, 5, "Wszelkie prawa autorskie zastrzezone. Dokument chroniony prawnie. \nWlasciciel aplikacji i autor opracowania: Marcin Szymanski.")
+    
     res_pdf = pdf.output(dest='S').encode('latin-1')
-    st.download_button("Zapisz Raport", res_pdf, "Oferta_PV_Symetria.pdf")
+    st.download_button("Zapisz Raport PDF", res_pdf, "Oferta_PV_Marcin_Szymanski.pdf")
+
+# --- STOPKA ---
+st.markdown("---")
+st.markdown("<center>© 2026 Marcin Szymański | Wszelkie prawa autorskie zastrzeżone</center>", unsafe_allow_html=True)
