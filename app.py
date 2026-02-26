@@ -15,7 +15,6 @@ if 'lon' not in st.session_state: st.session_state.lon = 21.01
 if 'city' not in st.session_state: st.session_state.city = "Warszawa"
 
 # --- BAZA DANYCH ---
-# Nazwa panela: Moc w kWp
 PANELS = {"Longi 450W": 0.450, "Jinko 550W": 0.550, "Trina 400W": 0.400}
 INVERTERS = {
     "Huawei SUN2000": [0.98, 4500],
@@ -61,7 +60,6 @@ st.sidebar.header("🏗️ 3. Kalkulator Mocy i Sprzęt")
 sel_p = st.sidebar.selectbox("Model paneli:", list(PANELS.keys()))
 num_p = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
 
-# KALKULATOR MOCY (Przelicznik panele x moc)
 panel_power_kwp = PANELS[sel_p]
 total_kwp = num_p * panel_power_kwp
 st.sidebar.info(f"⚡ Moc projektowana: **{round(total_kwp, 2)} kWp**")
@@ -77,7 +75,6 @@ cost_kwp_install = st.sidebar.number_input("Montaż i osprzęt (zł/kWp):", 0, 1
 # --- OBLICZENIA ---
 rad_total, sunny_days = get_weather_data(st.session_state.lat, st.session_state.lon)
 
-# Korekta dachu
 dir_corr = {"Południe": 1.0, "Wschód": 0.82, "Zachód": 0.82, "Północ": 0.55}
 tilt_corr = 1.0 - (abs(roof_tilt - 35) * 0.003) 
 final_roof_corr = dir_corr[roof_dir] * tilt_corr
@@ -85,11 +82,9 @@ final_roof_corr = dir_corr[roof_dir] * tilt_corr
 prod_year = total_kwp * rad_total * INVERTERS[sel_inv][0] * final_roof_corr * 0.9
 total_investment = (total_kwp * cost_kwp_install) + INVERTERS[sel_inv][1] + (BATTERIES[sel_b] * 2200)
 
-# Logika Mój Prąd 7.0
 subsidy = (7000 + 16000) if BATTERIES[sel_b] > 0 else 0
 net_investment = total_investment - subsidy
 
-# Autokonsumpcja
 base_ac = 0.25 + (BATTERIES[sel_b] / 25) + (0.20 if hp_consumption > 0 else 0)
 autocons = min(0.85, base_ac)
 
@@ -126,17 +121,41 @@ with col_plots:
     ax.set_ylabel("Wydajność (%)")
     st.pyplot(fig)
 
+# --- 5. WIZUALIZACJA PANELI (SYMETRYCZNA) ---
+st.subheader("🖼️ Symetryczny Projekt Rozmieszczenia")
+cols_n = 8  # Liczba paneli w pełnym rzędzie
+rows_n = -(-num_p // cols_n) # Całkowita liczba rzędów
 
+fig_pv, ax_pv = plt.subplots(figsize=(10, 4))
 
-st.subheader("🖼️ Projekt Rozmieszczenia Paneli")
-cols_n = 8
-rows_n = -(-num_p // cols_n)
-fig_pv, ax_pv = plt.subplots(figsize=(10, 3))
 for i in range(num_p):
     r, c = divmod(i, cols_n)
-    ax_pv.add_patch(patches.Rectangle((c*1.3, r*2.2), 1.2, 2.0, color='#1a237e', ec='white'))
-ax_pv.set_xlim(-0.5, 12)
-ax_pv.set_ylim(-0.5, rows_n * 2.5)
+    
+    # Logika symetrii dla ostatniego rzędu
+    current_row_y = r
+    
+    # Sprawdź, czy to ostatni rząd i czy jest niepełny
+    is_last_row = (current_row_y == rows_n - 1)
+    panels_in_last_row = num_p % cols_n
+    
+    if is_last_row and panels_in_last_row != 0:
+        # Oblicz przesunięcie (offset), aby wyśrodkować niepełny rząd
+        # Przesunięcie = (Szerokość pełnego rzędu - Szerokość obecnego rzędu) / 2
+        offset = (cols_n - panels_in_last_row) * 1.3 / 2
+        x_pos = (c * 1.3) + offset
+    else:
+        # Standardowe rozmieszczenie dla pełnych rzędów
+        x_pos = c * 1.3
+        
+    y_pos = r * 2.2 # Odstęp pionowy między rzędami
+    
+    # Rysuj panel (wymiary 1.2m x 2.0m)
+    ax_pv.add_patch(patches.Rectangle((x_pos, y_pos), 1.2, 2.0, color='#1a237e', ec='white', lw=0.5))
+
+# Ustawienia osi, aby objąć cały projekt
+ax_pv.set_xlim(-0.5, (cols_n * 1.3))
+ax_pv.set_ylim(-0.5, (rows_n * 2.2))
+ax_pv.set_aspect('equal')
 plt.axis('off')
 st.pyplot(fig_pv)
 
@@ -148,8 +167,7 @@ if st.button("📥 Pobierz Pełną Ofertę PDF"):
     pdf.set_font("Arial", '', 12)
     pdf.ln(10)
     pdf.cell(200, 10, f"Moc instalacji: {round(total_kwp, 2)} kWp ({num_p} paneli)", ln=True)
-    pdf.cell(200, 10, f"Dotacja Moj Prad 7.0: {int(subsidy)} zl", ln=True)
-    pdf.cell(200, 10, f"Koszt netto po dotacji: {int(net_investment)} zl", ln=True)
-    pdf.cell(200, 10, f"Szacowany czas zwrotu: {round(roi, 1)} lat", ln=True)
+    pdf.cell(200, 10, f"Uklad symetryczny: {rows_n} rzedow", ln=True)
+    pdf.cell(200, 10, f"Koszt netto po dotacji MP7: {int(net_investment)} zl", ln=True)
     res_pdf = pdf.output(dest='S').encode('latin-1')
-    st.download_button("Zapisz Raport", res_pdf, "Oferta_PV_Fundament.pdf")
+    st.download_button("Zapisz Raport", res_pdf, "Oferta_PV_Symetria.pdf")
