@@ -35,13 +35,18 @@ def get_coords(city_name):
 @st.cache_data
 def get_weather_data(lat, lon):
     try:
+        # Pobieranie danych za pełny rok 2025
         url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date=2025-01-01&end_date=2025-12-31&daily=shortwave_radiation_sum&timezone=auto"
         res = requests.get(url).json()
         rad_list = res['daily']['shortwave_radiation_sum']
+        
+        # Obliczenia techniczne
         rad_total = sum([r for r in rad_list if r is not None]) / 3.6
+        # Dzień słoneczny = suma promieniowania > 15 MJ/m2
         sunny_days = len([r for r in rad_list if r is not None and r > 15])
         return rad_total, sunny_days
-    except: return 1050.0, 185
+    except: 
+        return 1050.0, 185 # Dane domyślne w razie błędu API
 
 # --- SIDEBAR ---
 st.sidebar.header("📍 1. Lokalizacja")
@@ -75,7 +80,6 @@ inv_price = INVERTERS[sel_inv][1]
 prod_year = total_kwp * rad_total * inv_eff * 0.9
 total_investment = (total_kwp * cost_kwp) + inv_price + (BATTERIES[sel_b] * 2000)
 
-# Autokonsumpcja uwzględniająca pompę ciepła
 base_ac = 0.25 + (BATTERIES[sel_b] / 25)
 if hp_consumption > 0:
     base_ac += 0.20
@@ -85,11 +89,11 @@ savings = (prod_year * autocons * price) + (prod_year * (1 - autocons) * 0.50)
 roi = total_investment / savings if savings > 0 else 0
 
 # --- WIDOK GŁÓWNY ---
-st.title(f"☀️ Raport Opłacalności PV: {st.session_state.city}")
+st.title(f"☀️ Raport Energii 2025/2026: {st.session_state.city}")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Moc Układu", f"{round(total_kwp, 2)} kWp")
-c2.metric("Inwestycja PV", f"{int(total_investment)} zł")
+c1.metric("Dni Słoneczne (2025)", f"{sunny_days}")
+c2.metric("Moc Układu", f"{round(total_kwp, 2)} kWp")
 c3.metric("Roczny Zysk", f"{int(savings)} zł")
 c4.metric("Czas Zwrotu", f"{round(roi, 1)} lat")
 
@@ -102,7 +106,7 @@ with col_map:
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
     folium.Marker([st.session_state.lat, st.session_state.lon]).add_to(m)
     st_folium(m, height=250, use_container_width=True, key="map_v11")
-    st.info(f"Dzięki Pompie Ciepła Twoja autokonsumpcja wynosi aż **{int(autocons*100)}%**")
+    st.info(f"Całkowite nasłonecznienie: **{int(rad_total)} kWh/m²**")
 
 with col_plots:
     st.subheader("📉 Efektywność paneli w czasie (25 lat)")
@@ -114,6 +118,8 @@ with col_plots:
     ax_eff.set_ylim(80, 105)
     ax_eff.set_ylabel("Wydajność (%)")
     st.pyplot(fig_eff)
+
+
 
 st.subheader("🖼️ Projekt Rozmieszczenia Paneli")
 cols = 8
@@ -131,11 +137,13 @@ if st.button("📥 Pobierz PDF"):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, "ANALIZA OPLACALNOSCI PV 2026", ln=True, align='C')
+    pdf.cell(200, 10, "RAPORT PV - DANE SLONECZNE 2025", ln=True, align='C')
     pdf.set_font("Arial", '', 12)
     pdf.ln(10)
-    pdf.cell(200, 10, f"Miejscowosc: {st.session_state.city} ({sunny_days} dni slonecznych)", ln=True)
+    pdf.cell(200, 10, f"Miejscowosc: {st.session_state.city}", ln=True)
+    pdf.cell(200, 10, f"Liczba dni slonecznych (2025): {sunny_days}", ln=True)
+    pdf.cell(200, 10, f"Naslonecznienie: {int(rad_total)} kWh/m2", ln=True)
     pdf.cell(200, 10, f"Moc: {round(total_kwp, 2)} kWp | Inwestycja: {int(total_investment)} zl", ln=True)
     pdf.cell(200, 10, f"Zwrot: {round(roi, 1)} lat", ln=True)
     res_pdf = pdf.output(dest='S').encode('latin-1')
-    st.download_button("Zapisz Raport PDF", res_pdf, "Oferta_PV.pdf")
+    st.download_button("Zapisz Raport PDF", res_pdf, "Raport_PV_2025.pdf")
