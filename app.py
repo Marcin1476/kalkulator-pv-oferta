@@ -9,7 +9,7 @@ import numpy as np
 
 st.set_page_config(page_title="Ekspert PV Pro 2026", layout="wide")
 
-# --- START SESJI ---
+# --- SESJA ---
 if 'lat' not in st.session_state: st.session_state.lat = 52.23
 if 'lon' not in st.session_state: st.session_state.lon = 21.01
 if 'city' not in st.session_state: st.session_state.city = "Warszawa"
@@ -36,13 +36,13 @@ def get_sun(lat, lon):
         return rad, sunny
     except: return 1050.0, 185
 
-# --- MENU BOCZNE ---
+# --- BOCZNY PANEL ---
 st.sidebar.header("📍 1. Lokalizacja")
-c_in = st.sidebar.text_input("Miasto:", value=st.session_state.city)
+city_in = st.sidebar.text_input("Miasto:", value=st.session_state.city)
 if st.sidebar.button("Zastosuj"):
-    res = get_coords(c_in)
-    if res:
-        st.session_state.lat, st.session_state.lon, st.session_state.city = res
+    res_geo = get_coords(city_in)
+    if res_geo:
+        st.session_state.lat, st.session_state.lon, st.session_state.city = res_geo
         st.rerun()
 
 st.sidebar.header("🏗️ 2. Sprzęt")
@@ -61,7 +61,7 @@ eff, i_prc = INV_DB[s_i]
 prod = kwp * rad * eff * 0.9
 total_inv = (kwp * m_cost) + i_prc + (BAT_DB[s_b] * 2200)
 
-# --- WIDOK ---
+# --- INTERFEJS ---
 st.title(f"☀️ Analiza Techniczna: {st.session_state.city}")
 k1, k2, k3, k4 = st.columns(4)
 k1.metric("Dni Słoneczne", sunny)
@@ -71,25 +71,25 @@ k4.metric("Koszt Zestawu", f"{int(total_inv)} zł")
 
 st.divider()
 
-m_col, g_col = st.columns([1, 1])
-with m_col:
+col1, col2 = st.columns([1, 1])
+with col1:
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
     folium.Marker([st.session_state.lat, st.session_state.lon]).add_to(m)
-    st_folium(m, height=250, use_container_width=True, key="map_v11")
+    st_folium(m, height=250, use_container_width=True, key="map_v12")
 
-with g_col:
-    st.subheader("📉 Wydajność paneli w czasie (25 lat)")
-    years = np.arange(1, 26)
-    efficiency = [100 - (y * 0.5) for y in years]
-    
+with col2:
+    st.subheader("📉 Spadek wydajności (25 lat)")
+    yrs = np.arange(1, 26)
+    eff_list = [100 - (y * 0.5) for y in yrs]
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(years, efficiency, color='#e67e22', lw=3)
-    ax.fill_between(years, efficiency, 80, color='#f39c12', alpha=0.2)
+    ax.plot(yrs, eff_list, color='#e67e22', lw=3)
+    ax.fill_between(yrs, eff_list, 80, color='#f39c12', alpha=0.2)
     ax.set_ylim(80, 105)
     ax.set_xlabel("Lata")
     ax.set_ylabel("Wydajność (%)")
-    ax.grid(True, linestyle='--', alpha=0.6)
     st.pyplot(fig)
+
+
 
 st.subheader("Wizualizacja Rozmieszczenia")
 c_n = 8
@@ -111,6 +111,8 @@ if st.button("📥 Generuj Raport PDF"):
     pdf.set_font("Arial", '', 12)
     pdf.ln(10)
     pdf.cell(200, 10, f"Lokalizacja: {st.session_state.city}", ln=True)
+    pdf.cell(200, 10, f"Moc: {round(kwp,2)} kWp", ln=True)
     pdf.cell(200, 10, f"Dni sloneczne: {sunny}", ln=True)
-    pdf.cell(200, 10, f"Moc poczatkowa: {round(kwp,2)} kWp", ln=True)
-    res = pdf.
+    # Poprawiona linia PDF
+    out = pdf.output(dest='S').encode('latin-1')
+    st.download_button("Pobierz Raport PDF", out, "Raport_PV.pdf")
