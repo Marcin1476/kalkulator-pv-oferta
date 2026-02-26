@@ -33,7 +33,6 @@ def get_weather_2025(lat, lon):
 if 'lat' not in st.session_state:
     st.session_state.lat, st.session_state.lon, st.session_state.city_name = 52.22, 21.01, "Warszawa"
 
-# --- SIDEBAR ---
 st.sidebar.header("📍 1. Lokalizacja")
 city_q = st.sidebar.text_input("Miasto:", st.session_state.city_name)
 if st.sidebar.button("Zmień lokalizację"):
@@ -42,39 +41,34 @@ if st.sidebar.button("Zmień lokalizację"):
         st.session_state.lat, st.session_state.lon, st.session_state.city_name = res
         st.rerun()
 
-st.sidebar.header("💰 2. Twoje Rachunki")
-monthly_bill = st.sidebar.number_input("Średni rachunek miesięczny (zł):", 50, 2000, 350)
-energy_price = st.sidebar.number_input("Cena za 1 kWh (zł):", 0.5, 3.0, 1.25)
+st.sidebar.header("💰 2. Rachunki")
+monthly_bill = st.sidebar.number_input("Rachunek miesięczny (zł):", 50, 2000, 350)
+energy_price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
 
-st.sidebar.header("🏗️ 3. Konfiguracja PV")
+st.sidebar.header("🏗️ 3. Konfiguracja")
 sel_panel = st.sidebar.selectbox("Model panela:", list(PANELS_DB.keys()))
 num_panels = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
 sel_battery = st.sidebar.selectbox("Magazyn energii:", list(BATTERY_DB.keys()))
 
-# --- OBLICZENIA ---
 rad_m2, sunny_days = get_weather_2025(st.session_state.lat, st.session_state.lon)
 total_kwp = num_panels * PANELS_DB[sel_panel]
 production = total_kwp * (rad_m2 * 0.85)
-
-# Kalkulator zużycia
 annual_usage_kwh = (monthly_bill / energy_price) * 12
 
-# Kalkulator zysku (Autokonsumpcja: 30% bez baterii, do 70% z baterią)
 base_autoconsumption = 0.3
 battery_bonus = (BATTERY_DB[sel_battery] / 20) if BATTERY_DB[sel_battery] > 0 else 0
 total_autoconsumption = min(0.8, base_autoconsumption + battery_bonus)
 
 saved_money = (production * total_autoconsumption * energy_price) + (production * (1 - total_autoconsumption) * 0.45)
-new_annual_bill = max(200, (annual_usage_kwh * energy_price) - saved_money) # 200zł to opłaty stałe
+new_annual_bill = max(250, (annual_usage_kwh * energy_price) - saved_money)
 total_profit = (annual_usage_kwh * energy_price) - new_annual_bill
 
-# --- INTERFEJS ---
-st.title(f"☀️ Bilans Energetyczny 2025: {st.session_state.city_name}")
+st.title(f"☀️ Raport Energii 2025: {st.session_state.city_name}")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Twoje zużycie", f"{int(annual_usage_kwh)} kWh/rok")
+c1.metric("Zużycie domu", f"{int(annual_usage_kwh)} kWh/rok")
 c2.metric("Produkcja PV", f"{int(production)} kWh/rok")
-c3.metric("Roczny zysk", f"{int(total_profit)} zł", delta=f"{int(total_profit)} zł oszczędności")
+c3.metric("Roczny zysk", f"{int(total_profit)} zł")
 
 st.divider()
 
@@ -82,35 +76,39 @@ col_m, col_b = st.columns([2, 1])
 with col_m:
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
     folium.Marker([st.session_state.lat, st.session_state.lon]).add_to(m)
-    st_folium(m, height=300, use_container_width=True)
+    st_folium(m, height=300, use_container_width=True, key="map_final")
 
 with col_b:
-    st.subheader("📊 Porównanie kosztów")
-    labels = ['Przed PV', 'Po montażu PV']
-    costs = [annual_usage_kwh * energy_price, new_annual_bill]
+    st.subheader("📊 Bilans kosztów")
     fig_bar, ax_bar = plt.subplots()
-    ax_bar.bar(labels, costs, color=['#e74c3c', '#2ecc71'])
-    ax_bar.set_ylabel('Roczny koszt (zł)')
+    ax_bar.bar(['Przed PV', 'Po PV'], [annual_usage_kwh * energy_price, new_annual_bill], color=['#e74c3c', '#2ecc71'])
     st.pyplot(fig_bar)
 
-# --- WIZUALIZACJA DACHU ---
-st.subheader("🖼️ Projekt instalacji")
+st.subheader("🖼️ Wizualizacja dachu")
 cols = 8
 rows = -(-num_panels // cols)
 fig_pv, ax_pv = plt.subplots(figsize=(10, 3))
-ax_pv.set_facecolor('#f4f4f4')
 for i in range(num_panels):
     r, c = divmod(i, cols)
     ax_pv.add_patch(patches.Rectangle((c*1.3, r*2.2), 1.2, 2.0, color='#1a237e', ec='white'))
 plt.axis('off')
 st.pyplot(fig_pv)
 
-# --- PDF ---
-if st.button("📥 Generuj Pełną Analizę PDF"):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, f"ANALIZA ZYSKOW PV - {st.session_state.city_name.upper()}", ln=True, align='C')
-    pdf.ln(10)
-    pdf.set_font("Arial", '', 12)
-    pdf.cell(200, 10, f"Miejscowosc: {
+if st.button("📥 Pobierz Raport PDF"):
+    try:
+        pdf = FPDF()
+        pdf.add_page()
+        pdf.set_font("Arial", 'B', 16)
+        pdf.cell(200, 10, "ANALIZA ENERGETYCZNA PV 2025", ln=True, align='C')
+        pdf.ln(10)
+        pdf.set_font("Arial", '', 12)
+        pdf.cell(200, 10, f"Miejscowosc: {st.session_state.city_name}", ln=True)
+        pdf.cell(200, 10, f"Moc: {round(total_kwp, 2)} kWp", ln=True)
+        pdf.cell(200, 10, f"Magazyn energii: {sel_battery}", ln=True)
+        pdf.cell(200, 10, f"Dni sloneczne: {sunny_days}", ln=True)
+        pdf.cell(200, 10, f"Roczny zysk: {int(total_profit)} PLN", ln=True)
+        
+        pdf_bytes = pdf.output(dest='S').encode('latin-1')
+        st.download_button("Zapisz PDF", pdf_bytes, "Raport_PV.pdf", "application/pdf")
+    except Exception as e:
+        st.error(f"Błąd PDF: {e}")
