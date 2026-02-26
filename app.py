@@ -14,99 +14,105 @@ if 'lat' not in st.session_state: st.session_state.lat = 52.23
 if 'lon' not in st.session_state: st.session_state.lon = 21.01
 if 'city' not in st.session_state: st.session_state.city = "Warszawa"
 
+# --- BAZA DANYCH TECHNICZNYCH ---
+PANELS = {"Longi 450W": 0.45, "Jinko 550W": 0.55, "Trina 400W": 0.40}
+# Inwerter: [Sprawność, Cena bazowa zł]
+INVERTERS = {
+    "Huawei SUN2000": [0.98, 4500],
+    "Fronius Symo": [0.97, 6200],
+    "SMA Sunny Tripower": [0.98, 7500],
+    "Growatt MOD": [0.96, 3800]
+}
+BATTERIES = {"Brak": 0, "5 kWh": 5, "10 kWh": 10, "15 kWh": 15}
+
 # --- FUNKCJE ---
 def get_coords(city_name):
     try:
         url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1"
-        res = requests.get(url, headers={'User-Agent': 'PV_Pro_V6'}).json()
+        res = requests.get(url, headers={'User-Agent': 'PV_Pro_V7'}).json()
         if res: return float(res[0]['lat']), float(res[0]['lon']), res[0]['display_name'].split(',')[0]
     except: return None
 
 @st.cache_data
-def get_sun_data(lat, lon):
+def get_weather_data(lat, lon):
     try:
         url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date=2025-01-01&end_date=2025-12-31&daily=shortwave_radiation_sum&timezone=auto"
         res = requests.get(url).json()
-        rad = sum([r for r in res['daily']['shortwave_radiation_sum'] if r is not None]) / 3.6
-        return rad
-    except: return 1050.0
+        rad_list = res['daily']['shortwave_radiation_sum']
+        rad_total = sum([r for r in rad_list if r is not None]) / 3.6
+        # Liczymy dni słoneczne (promieniowanie > 15 MJ/m2)
+        sunny_days = len([r for r in rad_list if r is not None and r > 15])
+        return rad_total, sunny_days
+    except: return 1050.0, 185
 
 # --- SIDEBAR ---
 st.sidebar.header("📍 1. Lokalizacja")
 city_in = st.sidebar.text_input("Miasto:", value=st.session_state.city)
-if st.sidebar.button("Zastosuj"):
+if st.sidebar.button("Zaktualizuj dane"):
     res = get_coords(city_in)
     if res:
         st.session_state.lat, st.session_state.lon, st.session_state.city = res
         st.rerun()
 
-st.sidebar.header("🏗️ 2. Parametry Dachu")
-tilt = st.sidebar.slider("Kąt nachylenia (°)", 0, 90, 35)
-orient = st.sidebar.selectbox("Orientacja", ["Południe", "Wschód-Zachód", "Inna"])
-
-# Korekty
-az_map = {"Południe": 1.0, "Wschód-Zachód": 0.85, "Inna": 0.75}
-tilt_corr = 1.0 if 20 <= tilt <= 45 else 0.9
-
-st.sidebar.header("💰 3. Finanse i Sprzęt")
-bill = st.sidebar.number_input("Rachunek miesięczny (zł):", 50, 2000, 400)
-price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
-cost_kwp = st.sidebar.number_input("Koszt 1 kWp (zł):", 3000, 7000, 4500)
-
-P_DB = {"Longi 450W": 0.45, "Jinko 550W": 0.55, "Trina 400W": 0.40}
-sel_p = st.sidebar.selectbox("Model panela:", list(P_DB.keys()))
+st.sidebar.header("🏗️ 2. Sprzęt i Dach")
+sel_p = st.sidebar.selectbox("Model paneli:", list(PANELS.keys()))
 num_p = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
+sel_inv = st.sidebar.selectbox("Model inwertera:", list(INVERTERS.keys()))
+sel_b = st.sidebar.selectbox("Magazyn energii:", list(BATTERIES.keys()))
 
-B_DB = {"Brak": 0, "5 kWh": 5, "10 kWh": 10, "15 kWh": 15}
-sel_b = st.sidebar.selectbox("Magazyn energii:", list(B_DB.keys()))
+st.sidebar.header("💰 3. Finanse")
+bill = st.sidebar.number_input("Rachunek (miesięczny):", 50, 2000, 400)
+price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
+cost_kwp = st.sidebar.number_input("Montaż i osprzęt (zł/kWp):", 3000, 7000, 4000)
 
-# --- OBLICZENIA (NAPRAWIONA LINIA 69) ---
-rad = get_sun_data(st.session_state.lat, st.session_state.lon)
-total_kwp = num_p * P_DB[sel_p]
-prod_year = total_kwp * (rad * 0.85) * az_map[orient] * tilt_corr
-inv_cost = (total_kwp * cost_kwp) + (B_DB[sel_b] * 2200)
+# --- OBLICZENIA ---
+rad_total, sunny_days = get_weather_data(st.session_state.lat, st.session_state.lon)
+total_kwp = num_p * PANELS[sel_p]
+inv_eff = INVERTERS[sel_inv][0]
+inv_price = INVERTERS[sel_inv][1]
 
-# Obliczanie autokonsumpcji
-autocons_val = 0.3 + (B_DB[sel_b] / 25) if B_DB[sel_b] > 0 else 0.3
+# Produkcja = Moc * Nasłonecznienie * Sprawność Inwertera * Straty kablowe (0.9)
+prod_year = total_kwp * rad_total * inv_eff * 0.9
+inv_cost = (total_kwp * cost_kwp) + inv_price + (BATTERIES[sel_b] * 2000)
+
+autocons_val = 0.3 + (BATTERIES[sel_b] / 25) if BATTERIES[sel_b] > 0 else 0.3
 autocons = min(0.75, autocons_val)
-
 savings = (prod_year * autocons * price) + (prod_year * (1 - autocons) * 0.50)
 roi = inv_cost / savings if savings > 0 else 0
 
 # --- WIDOK GŁÓWNY ---
-st.title(f"☀️ Raport Ekspercki PV: {st.session_state.city}")
+st.title(f"☀️ Raport Techniczny PV 2025: {st.session_state.city}")
 
-c1, c2, c3, c4 = st.columns(4)
-c1.metric("Moc", f"{round(total_kwp, 2)} kWp")
-c2.metric("Inwestycja", f"{int(inv_cost)} zł")
-c3.metric("Zysk roczny", f"{int(savings)} zł")
-c4.metric("Zwrot", f"{round(roi, 1)} lat")
+col_top1, col_top2, col_top3, col_top4 = st.columns(4)
+col_top1.metric("Dni Słoneczne", f"{sunny_days} dni/rok")
+col_top2.metric("Moc Układu", f"{round(total_kwp, 2)} kWp")
+col_top3.metric("Inwestycja", f"{int(inv_cost)} zł")
+col_top4.metric("Zwrot (ROI)", f"{round(roi, 1)} lat")
 
 st.divider()
 
 col_map, col_plots = st.columns([1, 1])
 
 with col_map:
-    st.subheader("📍 Mapa i Dane")
+    st.subheader("📍 Analiza Lokalizacji")
     m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
     folium.Marker([st.session_state.lat, st.session_state.lon]).add_to(m)
-    st_folium(m, height=250, use_container_width=True, key="map_v7")
-    st.write(f"Produkcja: {int(prod_year)} kWh/rok")
-    st.write(f"Autokonsumpcja: {int(autocons*100)}%")
+    st_folium(m, height=250, use_container_width=True, key="map_v8")
+    st.info(f"Wybrany inwerter **{sel_inv}** posiada sprawność **{int(inv_eff*100)}%**.")
 
 with col_plots:
-    st.subheader("📈 Wykres Cash Flow")
+    st.subheader("📈 Bilans Finansowy (15 lat)")
     years = np.arange(0, 16)
     cash_flow = [-inv_cost + (y * savings) for y in years]
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(years, cash_flow, marker='o', color='#27ae60', lw=2)
-    ax.axhline(0, color='red', lw=1, ls='--')
+    ax.plot(years, cash_flow, marker='o', color='#2c3e50', lw=2)
+    ax.axhline(0, color='red', ls='--')
     ax.set_xlabel("Lata")
     ax.set_ylabel("Bilans (zł)")
     st.pyplot(fig)
 
-# --- WIZUALIZACJA ---
-st.subheader("🖼️ Projekt rozmieszczenia")
+# --- WIZUALIZACJA PROJEKTU ---
+st.subheader("🖼️ Projekt Rozmieszczenia Paneli")
 cols = 8
 rows = -(-num_p // cols)
 fig_pv, ax_pv = plt.subplots(figsize=(10, 3))
@@ -119,15 +125,16 @@ plt.axis('off')
 st.pyplot(fig_pv)
 
 # --- PDF ---
-if st.button("📥 Pobierz PDF"):
+if st.button("📥 Generuj Ofertę PDF"):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, "OFERTA FOTOWOLTAICZNA 2025", ln=True, align='C')
+    pdf.cell(200, 10, "PROJEKT INSTALACJI PV - RAPORT 2025", ln=True, align='C')
     pdf.set_font("Arial", '', 12)
     pdf.ln(10)
-    pdf.cell(200, 10, f"Lokalizacja: {st.session_state.city}", ln=True)
-    pdf.cell(200, 10, f"Moc: {round(total_kwp, 2)} kWp", ln=True)
-    pdf.cell(200, 10, f"Czas zwrotu: {round(roi, 1)} lat", ln=True)
+    pdf.cell(200, 10, f"Miejscowosc: {st.session_state.city}", ln=True)
+    pdf.cell(200, 10, f"Liczba dni slonecznych: {sunny_days}", ln=True)
+    pdf.cell(200, 10, f"Moduly: {sel_p} | Inwerter: {sel_inv}", ln=True)
+    pdf.cell(200, 10, f"Moc: {round(total_kwp, 2)} kWp | Zwrot: {round(roi, 1)} lat", ln=True)
     res_pdf = pdf.output(dest='S').encode('latin-1')
-    st.download_button("Zapisz Raport PDF", res_pdf, "Oferta_PV.pdf")
+    st.download_button("Pobierz Plik PDF", res_pdf, "Oferta_PV_Pro.pdf")
