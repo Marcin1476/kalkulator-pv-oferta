@@ -34,7 +34,6 @@ def get_weather_2025(lat, lon):
 if 'lat' not in st.session_state:
     st.session_state.lat, st.session_state.lon, st.session_state.city_name = 52.22, 21.01, "Warszawa"
 
-# --- SIDEBAR ---
 st.sidebar.header("📍 Lokalizacja")
 city_q = st.sidebar.text_input("Miasto:", st.session_state.city_name)
 if st.sidebar.button("Zmień lokalizację"):
@@ -52,19 +51,16 @@ sel_panel = st.sidebar.selectbox("Model panela:", list(PANELS_DB.keys()))
 num_panels = st.sidebar.slider("Liczba paneli:", 1, 40, 12)
 sel_battery = st.sidebar.selectbox("Magazyn energii:", list(BATTERY_DB.keys()))
 
-# --- OBLICZENIA ---
 rad_m2, sunny_days = get_weather_2025(st.session_state.lat, st.session_state.lon)
 total_kwp = num_panels * PANELS_DB[sel_panel]
 production = total_kwp * (rad_m2 * 0.85)
 annual_usage_kwh = (monthly_bill / energy_price) * 12
 
-# Logika zysku
 autocons_base = 0.3
 battery_cap = BATTERY_DB[sel_battery]
 autocons_total = min(0.75, autocons_base + (battery_cap / 20))
 annual_savings = (production * autocons_total * energy_price) + (production * (1 - autocons_total) * 0.50)
 
-# --- INTERFEJS ---
 st.title(f"☀️ Raport Fotowoltaiczny 2025: {st.session_state.city_name}")
 
 c1, c2, c3 = st.columns(3)
@@ -74,22 +70,17 @@ c3.metric("Oszczędność", f"{int(annual_savings)} zł/rok")
 
 st.divider()
 
-# --- REALISTYCZNA WIZUALIZACJA ---
-st.subheader("🖼️ Realistyczna wizualizacja na połaci dachowej")
+st.subheader("🖼️ Realistyczna wizualizacja instalacji")
 
 def draw_realistic_pv(n):
     cols = 6 if n > 6 else n
     rows = -(-n // cols)
     
-    fig, ax = plt.subplots(figsize=(12, 6))
-    # Tło jako dach (dachówka)
-    ax.set_facecolor('#34495e') 
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.set_facecolor('#2c3e50') # Ciemny dach
     
     for i in range(n):
         r, c = divmod(i, cols)
         x, y = c * 1.3, r * 2.2
         
-        # Ramka panela (szary aluminium)
-        ax.add_patch(patches.Rectangle((x, y), 1.2, 2.0, color='#2c3e50', zorder=1))
-        # Główne szkło panela (ciemny granat/czarny)
-        ax.add_patch(patches.Rectangle((x+0.05, y+0.05), 1.1, 1.9, color='#1a1a2e', zorder
+        #
