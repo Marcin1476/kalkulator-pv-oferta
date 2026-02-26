@@ -62,15 +62,18 @@ sel_p = st.sidebar.selectbox("Model paneli:", list(PANELS.keys()))
 num_p = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
 panel_power_kwp = PANELS[sel_p]
 total_kwp = num_p * panel_power_kwp
-st.sidebar.info(f"⚡ Moc projektowana: **{round(total_kwp, 2)} kWp**")
 
 sel_inv = st.sidebar.selectbox("Model inwertera:", list(INVERTERS.keys()))
 sel_b = st.sidebar.selectbox("Magazyn energii:", list(BATTERIES.keys()))
+# PRZENIESIONO Z KOSZTÓW:
+cost_kwp_install = st.sidebar.number_input("Montaż i osprzęt (zł/kWp):", 0, 10000, 4000)
+
+st.sidebar.info(f"⚡ Moc projektowana: **{round(total_kwp, 2)} kWp**")
 
 st.sidebar.header("💰 4. Koszty i Zużycie")
+monthly_kwh = st.sidebar.number_input("Miesięczne zużycie domu (kWh):", 50, 2000, 350)
 hp_consumption = st.sidebar.number_input("Roczne zużycie Pompy Ciepła (kWh):", 0, 15000, 4000)
-price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
-cost_kwp_install = st.sidebar.number_input("Montaż i osprzęt (zł/kWp):", 0, 10000, 4000)
+price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 4.0, 1.25)
 
 # --- STOPKA AUTORSKA W SIDEBARZE ---
 st.sidebar.divider()
@@ -90,8 +93,11 @@ total_investment = (total_kwp * cost_kwp_install) + INVERTERS[sel_inv][1] + (BAT
 subsidy = (7000 + 16000) if BATTERIES[sel_b] > 0 else 0
 net_investment = total_investment - subsidy
 
-# Autokonsumpcja uwzględniająca Pompę Ciepła
-base_ac = 0.25 + (BATTERIES[sel_b] / 25) + (0.20 if hp_consumption > 0 else 0)
+# Autokonsumpcja uwzględniająca Pompę Ciepła i wysokie zużycie domowe
+total_house_need = (monthly_kwh * 12) + hp_consumption
+base_ac = 0.25 + (BATTERIES[sel_b] / 25)
+if hp_consumption > 0 or monthly_kwh > 400:
+    base_ac += 0.20
 autocons = min(0.85, base_ac)
 
 savings = (prod_year * autocons * price) + (prod_year * (1 - autocons) * 0.50)
@@ -102,7 +108,7 @@ st.title(f"☀️ Raport PV 2026: {st.session_state.city}")
 st.subheader(f"Autor projektu: Marcin Szymański")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Moc Układu", f"{round(total_kwp, 2)} kWp", f"{num_p} szt. x {int(panel_power_kwp*1000)}W")
+c1.metric("Moc Układu", f"{round(total_kwp, 2)} kWp")
 c2.metric("Dotacja MP 7.0", f"{int(subsidy)} zł")
 c3.metric("Koszt NETTO", f"{int(net_investment)} zł")
 c4.metric("Czas Zwrotu", f"{round(roi, 1)} lat")
@@ -127,6 +133,8 @@ with col_plots:
     ax.set_ylim(80, 105)
     ax.set_ylabel("Wydajność (%)")
     st.pyplot(fig)
+
+
 
 # --- WIZUALIZACJA PANELI (SYMETRYCZNA) ---
 st.subheader("🖼️ Symetryczny Projekt Rozmieszczenia")
@@ -168,12 +176,14 @@ if st.button("📥 Pobierz Pełną Ofertę PDF"):
     pdf.cell(200, 8, f"- Lokalizacja: {st.session_state.city} ({sunny_days} dni slonecznych)", ln=True)
     pdf.cell(200, 8, f"- Moc instalacji: {round(total_kwp, 2)} kWp ({num_p} paneli)", ln=True)
     pdf.cell(200, 8, f"- Kat dachu: {roof_tilt} deg, Kierunek: {roof_dir}", ln=True)
+    pdf.cell(200, 8, f"- Zuzycie domowe: {monthly_kwh} kWh/miesiac", ln=True)
     pdf.cell(200, 8, f"- Zuzycie Pompy Ciepla: {hp_consumption} kWh/rok", ln=True)
     pdf.ln(5)
     
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(200, 10, "ANALIZA FINANSOWA:", ln=True)
     pdf.set_font("Arial", '', 11)
+    pdf.cell(200, 8, f"- Cena montazu i osprzetu: {cost_kwp_install} zl/kWp", ln=True)
     pdf.cell(200, 8, f"- Koszt netto po dotacji MP7: {int(net_investment)} zl", ln=True)
     pdf.cell(200, 8, f"- Szacowany czas zwrotu: {round(roi, 1)} lat", ln=True)
     
