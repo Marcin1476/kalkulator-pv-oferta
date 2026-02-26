@@ -5,102 +5,88 @@ import matplotlib.patches as patches
 from fpdf import FPDF
 import folium
 from streamlit_folium import st_folium
-import io
 
-st.set_page_config(page_title="Ekspert PV Pro - Lokalizator", layout="wide")
+st.set_page_config(page_title="Ekspert PV Pro 2025", layout="wide")
 
-# --- BAZA DANYCH ---
-PANELS_DB = {"Longi 450W": {"power": 0.45, "w": 1.13, "h": 1.76}, "Jinko 550W": {"power": 0.55, "w": 1.13, "h": 2.27}}
-ROOF_TYPES = {"Blachodachówka": 250, "Dachówka": 450, "Dach Płaski": 550, "Grunt": 800}
-
-# --- FUNKCJA SZUKANIA MIASTA ---
 def get_coords(city_name):
     try:
-        url = f"https://nominatim.openstreetmap.org/search?city={city_name}&format=json&limit=1"
-        headers = {'User-Agent': 'PV_App_User'}
-        res = requests.get(url, headers=headers).json()
-        if res:
-            return float(res[0]['lat']), float(res[0]['lon'])
-    except: return None
+        url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1"
+        headers = {'User-Agent': 'Kalkulator_PV_2025'}
+        response = requests.get(url, headers=headers).json()
+        if response:
+            return float(response[0]['lat']), float(response[0]['lon']), response[0]['display_name'].split(',')[0]
+    except:
+        return None
     return None
 
-# --- SIDEBAR ---
-st.sidebar.header("📍 Lokalizacja Instalacji")
-city_input = st.sidebar.text_input("Wpisz miejscowość:", "Warszawa")
-search_btn = st.sidebar.button("Znajdź na mapie")
-
-st.sidebar.header("🏗️ Parametry Systemu")
-sel_panel = st.sidebar.selectbox("Model Panela", list(PANELS_DB.keys()))
-num_panels = st.sidebar.slider("Liczba paneli", 1, 60, 12)
-energy_price = st.sidebar.number_input("Cena prądu (zł/kWh)", 0.0, 3.0, 1.15)
-
-# --- LOGIKA LOKALIZACJI ---
-if 'lat' not in st.session_state:
-    st.session_state.lat, st.session_state.lon = 52.23, 21.01
-
-if search_btn:
-    coords = get_coords(city_input)
-    if coords:
-        st.session_state.lat, st.session_state.lon = coords
-    else:
-        st.error("Nie znaleziono miejscowości. Spróbuj ponownie.")
-
-# --- POBIERANIE DANYCH POGODOWYCH ---
 @st.cache_data
-def get_weather(lat, lon):
+def get_weather_2025(lat, lon):
     try:
-        url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date=2024-01-01&end_date=2024-12-31&daily=shortwave_radiation_sum&timezone=auto"
+        # Pobieramy dane za cały rok 2025
+        url = f"https://archive-api.open-meteo.com/v1/archive?latitude={lat}&longitude={lon}&start_date=2025-01-01&end_date=2025-12-31&daily=shortwave_radiation_sum&timezone=auto"
         res = requests.get(url).json()
         rad_list = res['daily']['shortwave_radiation_sum']
-        sunny_days = len([r for r in rad_list if r > 18]) # Próg nasłonecznienia dla dnia "bardzo słonecznego"
-        return sum(rad_list) / 3.6, sunny_days
-    except: return 1000.0, 185
+        
+        # Filtracja dni słonecznych (nasłonecznienie > 18 MJ/m2)
+        sunny_days = len([r for r in rad_list if r is not None and r > 18])
+        total_rad_kwh = sum([r for r in rad_list if r is not None]) / 3.6
+        return total_rad_kwh, sunny_days
+    except:
+        return 1050.0, 190
 
-rad, sunny_days = get_weather(st.session_state.lat, st.session_state.lon)
-total_pwr = num_panels * PANELS_DB[sel_panel]["power"]
-yield_kwh = total_pwr * (rad / 1000) * 0.85
+# --- SESJA I LOKALIZACJA ---
+if 'lat' not in st.session_state:
+    st.session_state.lat, st.session_state.lon = 52.2297, 21.0122
+    st.session_state.city_name = "Warszawa"
 
-# --- INTERFEJS GŁÓWNY ---
-st.title(f"☀️ Analiza PV dla miejscowości: {city_input}")
-st.markdown(f"**Współrzędne:** {round(st.session_state.lat, 4)}, {round(st.session_state.lon, 4)}")
+# --- SIDEBAR ---
+st.sidebar.header("📍 Lokalizacja (Dane 2025)")
+city_query = st.sidebar.text_input("Wpisz miasto:", st.session_state.city_name)
 
-c_map, c_stats = st.columns([2, 1])
+if st.sidebar.button("Zastosuj i przelicz dla 2025"):
+    res = get_coords(city_query)
+    if res:
+        st.session_state.lat, st.session_state.lon, st.session_state.city_name = res
+        st.rerun()
+    else:
+        st.sidebar.error("Nie znaleziono miejscowości.")
 
-with c_map:
-    m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
-    folium.Marker([st.session_state.lat, st.session_state.lon], popup=city_input).add_to(m)
-    st_folium(m, height=400, use_container_width=True, key="map")
+st.sidebar.header("🏗️ Parametry")
+num_panels = st.sidebar.slider("Liczba paneli:", 1, 80, 14)
+energy_price = st.sidebar.number_input("Cena energii (zł/kWh):", 0.0, 3.5, 1.25)
 
-with c_stats:
-    st.metric("Dni słoneczne (2024)", f"{sunny_days} dni")
-    st.metric("Roczny uzysk energii", f"{int(yield_kwh)} kWh")
-    st.metric("Oszczędność roczna", f"{int(yield_kwh * energy_price)} zł")
-    st.info("Dane nasłonecznienia pobrane automatycznie dla wybranej pozycji.")
+# --- OBLICZENIA ---
+rad_2025, sunny_days_2025 = get_weather_2025(st.session_state.lat, st.session_state.lon)
+total_kwp = num_panels * 0.45
+production = total_kwp * (rad_2025 / 1000) * 0.85
+annual_profit = production * energy_price
+
+# --- INTERFEJS ---
+st.title(f"☀️ Raport Nasłonecznienia 2025: {st.session_state.city_name}")
+
+c1, c2 = st.columns([2, 1])
+
+with c1:
+    m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=11)
+    folium.Marker([st.session_state.lat, st.session_state.lon], popup=st.session_state.city_name).add_to(m)
+    st_folium(m, height=400, use_container_width=True, key="map_2025")
+
+with c2:
+    st.subheader("Statystyki za rok 2025")
+    st.metric("Dni słoneczne", f"{sunny_days_2025} dni")
+    st.metric("Suma energii", f"{int(rad_2025)} kWh/m²")
+    st.metric("Moc systemu", f"{round(total_kwp, 2)} kWp")
+    st.success(f"Zysk: {int(annual_profit)} zł/rok")
+
+st.divider()
 
 # --- WIZUALIZACJA ---
-st.subheader("🖼️ Projekt rozmieszczenia paneli")
-cols_ui = 6
-rows_ui = -(-num_panels // cols_ui)
-fig, ax = plt.subplots(figsize=(10, 3))
-ax.set_facecolor('#ecf0f1')
-for i in range(num_panels):
-    r, c = divmod(i, cols_ui)
-    ax.add_patch(patches.Rectangle((c * 1.2, r * 1.9), 1.1, 1.8, color='#2c3e50', ec='white'))
-plt.axis('off')
-st.pyplot(fig)
+st.subheader("🖼️ Rozmieszczenie paneli na dachu")
+cols = 7 if num_panels > 7 else num_panels
+rows = -(-num_panels // cols)
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.set_facecolor('#cfd8dc')
 
-# --- EKSPORT PDF ---
-if st.button("📥 Pobierz Ofertę z Danymi Lokalnymi"):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, f"OFERTA DLA MIEJSCOWOSCI: {city_input.upper()}", ln=True, align='C')
-    pdf.set_font("Arial", '', 12)
-    pdf.ln(10)
-    pdf.cell(200, 10, f"Lokalizacja: {city_input} (Lat: {round(st.session_state.lat,2)}, Lon: {round(st.session_state.lon,2)})", ln=True)
-    pdf.cell(200, 10, f"Liczba dni slonecznych: {sunny_days}", ln=True)
-    pdf.cell(200, 10, f"Moc instalacji: {round(total_pwr, 2)} kWp", ln=True)
-    pdf.cell(200, 10, f"Zysk roczny przy cenie {energy_price} zl/kWh: {int(yield_kwh * energy_price)} zl", ln=True)
-    
-    pdf_bytes = pdf.output(dest='S').encode('latin-1')
-    st.download_button(label="Pobierz PDF", data=pdf_bytes, file_name=f"Oferta_{city_input}.pdf", mime="application/pdf")
+for i in range(num_panels):
+    r, c = divmod(i, cols)
+    ax.add_
