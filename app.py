@@ -5,16 +5,17 @@ import matplotlib.patches as patches
 from fpdf import FPDF
 import folium
 from streamlit_folium import st_folium
+import numpy as np
 
-st.set_page_config(page_title="Ekspert PV Pro - Kalkulator Zysków", layout="wide")
+st.set_page_config(page_title="Ekspert PV Pro - Realistyczna Wizualizacja", layout="wide")
 
-PANELS_DB = {"Longi 450W": 0.45, "Jinko 550W": 0.55, "Trina 400W": 0.40}
+PANELS_DB = {"Longi 450W Black": 0.45, "Jinko 550W Tiger": 0.55, "Trina 400W Vertex": 0.40}
 BATTERY_DB = {"Brak": 0, "5 kWh": 5, "10 kWh": 10, "15 kWh": 15}
 
 def get_coords(city_name):
     try:
         url = f"https://nominatim.openstreetmap.org/search?q={city_name}&format=json&limit=1"
-        headers = {'User-Agent': 'PV_Profit_Calc_2025'}
+        headers = {'User-Agent': 'PV_Pro_Real_Vis'}
         res = requests.get(url, headers=headers).json()
         if res: return float(res[0]['lat']), float(res[0]['lon']), res[0]['display_name'].split(',')[0]
     except: return None
@@ -33,7 +34,8 @@ def get_weather_2025(lat, lon):
 if 'lat' not in st.session_state:
     st.session_state.lat, st.session_state.lon, st.session_state.city_name = 52.22, 21.01, "Warszawa"
 
-st.sidebar.header("📍 1. Lokalizacja")
+# --- SIDEBAR ---
+st.sidebar.header("📍 Lokalizacja")
 city_q = st.sidebar.text_input("Miasto:", st.session_state.city_name)
 if st.sidebar.button("Zmień lokalizację"):
     res = get_coords(city_q)
@@ -41,74 +43,53 @@ if st.sidebar.button("Zmień lokalizację"):
         st.session_state.lat, st.session_state.lon, st.session_state.city_name = res
         st.rerun()
 
-st.sidebar.header("💰 2. Rachunki")
-monthly_bill = st.sidebar.number_input("Rachunek miesięczny (zł):", 50, 2000, 350)
-energy_price = st.sidebar.number_input("Cena 1 kWh (zł):", 0.5, 3.0, 1.25)
+st.sidebar.header("💰 Dane Finansowe")
+monthly_bill = st.sidebar.number_input("Rachunek miesięczny (zł):", 50, 2000, 400)
+energy_price = st.sidebar.number_input("Cena prądu (zł/kWh):", 0.5, 3.0, 1.20)
 
-st.sidebar.header("🏗️ 3. Konfiguracja")
+st.sidebar.header("🏗️ Konfiguracja Systemu")
 sel_panel = st.sidebar.selectbox("Model panela:", list(PANELS_DB.keys()))
-num_panels = st.sidebar.slider("Liczba paneli:", 1, 60, 14)
+num_panels = st.sidebar.slider("Liczba paneli:", 1, 40, 12)
 sel_battery = st.sidebar.selectbox("Magazyn energii:", list(BATTERY_DB.keys()))
 
+# --- OBLICZENIA ---
 rad_m2, sunny_days = get_weather_2025(st.session_state.lat, st.session_state.lon)
 total_kwp = num_panels * PANELS_DB[sel_panel]
 production = total_kwp * (rad_m2 * 0.85)
 annual_usage_kwh = (monthly_bill / energy_price) * 12
 
-base_autoconsumption = 0.3
-battery_bonus = (BATTERY_DB[sel_battery] / 20) if BATTERY_DB[sel_battery] > 0 else 0
-total_autoconsumption = min(0.8, base_autoconsumption + battery_bonus)
+# Logika zysku
+autocons_base = 0.3
+battery_cap = BATTERY_DB[sel_battery]
+autocons_total = min(0.75, autocons_base + (battery_cap / 20))
+annual_savings = (production * autocons_total * energy_price) + (production * (1 - autocons_total) * 0.50)
 
-saved_money = (production * total_autoconsumption * energy_price) + (production * (1 - total_autoconsumption) * 0.45)
-new_annual_bill = max(250, (annual_usage_kwh * energy_price) - saved_money)
-total_profit = (annual_usage_kwh * energy_price) - new_annual_bill
-
-st.title(f"☀️ Raport Energii 2025: {st.session_state.city_name}")
+# --- INTERFEJS ---
+st.title(f"☀️ Raport Fotowoltaiczny 2025: {st.session_state.city_name}")
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Zużycie domu", f"{int(annual_usage_kwh)} kWh/rok")
-c2.metric("Produkcja PV", f"{int(production)} kWh/rok")
-c3.metric("Roczny zysk", f"{int(total_profit)} zł")
+c1.metric("Zużycie roczne", f"{int(annual_usage_kwh)} kWh")
+c2.metric("Produkcja z PV", f"{int(production)} kWh")
+c3.metric("Oszczędność", f"{int(annual_savings)} zł/rok")
 
 st.divider()
 
-col_m, col_b = st.columns([2, 1])
-with col_m:
-    m = folium.Map(location=[st.session_state.lat, st.session_state.lon], zoom_start=12)
-    folium.Marker([st.session_state.lat, st.session_state.lon]).add_to(m)
-    st_folium(m, height=300, use_container_width=True, key="map_final")
+# --- REALISTYCZNA WIZUALIZACJA ---
+st.subheader("🖼️ Realistyczna wizualizacja na połaci dachowej")
 
-with col_b:
-    st.subheader("📊 Bilans kosztów")
-    fig_bar, ax_bar = plt.subplots()
-    ax_bar.bar(['Przed PV', 'Po PV'], [annual_usage_kwh * energy_price, new_annual_bill], color=['#e74c3c', '#2ecc71'])
-    st.pyplot(fig_bar)
-
-st.subheader("🖼️ Wizualizacja dachu")
-cols = 8
-rows = -(-num_panels // cols)
-fig_pv, ax_pv = plt.subplots(figsize=(10, 3))
-for i in range(num_panels):
-    r, c = divmod(i, cols)
-    ax_pv.add_patch(patches.Rectangle((c*1.3, r*2.2), 1.2, 2.0, color='#1a237e', ec='white'))
-plt.axis('off')
-st.pyplot(fig_pv)
-
-if st.button("📥 Pobierz Raport PDF"):
-    try:
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", 'B', 16)
-        pdf.cell(200, 10, "ANALIZA ENERGETYCZNA PV 2025", ln=True, align='C')
-        pdf.ln(10)
-        pdf.set_font("Arial", '', 12)
-        pdf.cell(200, 10, f"Miejscowosc: {st.session_state.city_name}", ln=True)
-        pdf.cell(200, 10, f"Moc: {round(total_kwp, 2)} kWp", ln=True)
-        pdf.cell(200, 10, f"Magazyn energii: {sel_battery}", ln=True)
-        pdf.cell(200, 10, f"Dni sloneczne: {sunny_days}", ln=True)
-        pdf.cell(200, 10, f"Roczny zysk: {int(total_profit)} PLN", ln=True)
+def draw_realistic_pv(n):
+    cols = 6 if n > 6 else n
+    rows = -(-n // cols)
+    
+    fig, ax = plt.subplots(figsize=(12, 6))
+    # Tło jako dach (dachówka)
+    ax.set_facecolor('#34495e') 
+    
+    for i in range(n):
+        r, c = divmod(i, cols)
+        x, y = c * 1.3, r * 2.2
         
-        pdf_bytes = pdf.output(dest='S').encode('latin-1')
-        st.download_button("Zapisz PDF", pdf_bytes, "Raport_PV.pdf", "application/pdf")
-    except Exception as e:
-        st.error(f"Błąd PDF: {e}")
+        # Ramka panela (szary aluminium)
+        ax.add_patch(patches.Rectangle((x, y), 1.2, 2.0, color='#2c3e50', zorder=1))
+        # Główne szkło panela (ciemny granat/czarny)
+        ax.add_patch(patches.Rectangle((x+0.05, y+0.05), 1.1, 1.9, color='#1a1a2e', zorder
